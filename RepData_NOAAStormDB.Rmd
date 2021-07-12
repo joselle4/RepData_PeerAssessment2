@@ -1,0 +1,226 @@
+---
+title: "NOAA Storm Database Reproducible Research: An Investigation on how Storm Events affect Population Health and their Economic Consequences"
+author: "Joselle Abagat"
+date: "October 20, 2016"
+output: 
+    html_document:
+        keep_md: TRUE
+---
+
+## I. Synopsis
+
+##### This document investigates the data contained in the NOAA Storm Database.  Two questions are being answered: (1) which storm events are most harmful with respect to population health and (2) which storm events have the greatest economic consequences.  In order to answer which storm events affect population health, a subset of the data is analyzed involving storm events, fatalities and injuries.  Analysis of this subset showed that tornadoes, excessive heat or heat, flash floods or floods and lightning are most harmful with respect to population health.  In order to answer which storm events have the greatest economic consequences, a subset of the data is analyzed involving storm events and property and crop damages.  Analysis of this subset showed that floods, hurricanes/typhoons, tornadoes and storm surges have the greatest economic consequences.  All data processing and analyses are found in Section II.  All results are presented in Section III.  
+
+## II. Data Processing 
+
+#### This section contains information regarding the loading, processing and analysis of the NOAA Storm database.  
+
+### Set global options
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+### Load libraries
+
+##### The r libraries used in this report are: ggplot, plyr, dplyr, grid
+```{r libraries, include = FALSE}
+library(ggplot2)
+library(plyr)
+library(dplyr)
+library(grid)
+```
+
+### Loading and preprocessing the data
+```{r loadData, cache = TRUE}
+# load data
+filePath <- "/Users/joselle4/Documents/Programming/R/coursera/repdata-data-StormData.csv.bz2"
+stormDb <- read.csv(filePath, header = TRUE, na.strings = "NA")
+```
+
+### Data analysis
+
+#### 1) Storm Events vs. Population Health
+##### In order to answer which storm events are most harmful with respect to population health, we need to look at how the variable `r names(stormDb[8])` relates to variables `r names(stormDb[23])` and `r names(stormDb[24])`. We look at `r names(stormDb[23])` because more deaths would lead to a population decline, therefore affecting population health.  Meanwhile, while not as drastic, `r names(stormDb[24])` can also affect population health.  Studying the relationship between these variables will allow us to determine which storm events lead to the most catastrophies with respect to population health.
+
+```{r subsetDbEventFatalities, cache = TRUE}
+# obtain subset of the data and aggregate to obtain sum of data
+subEventFatalatiesInjuries <- subset(stormDb,
+                             FATALITIES > 0,
+                             select = c(EVTYPE, FATALITIES, INJURIES))
+
+sumEventFatalaties <- aggregate(FATALITIES ~ EVTYPE,
+                                subEventFatalatiesInjuries,
+                                FUN = sum)
+sumEventInjuries <- aggregate(INJURIES ~ EVTYPE,
+                              subEventFatalatiesInjuries,
+                              FUN = sum)
+summary(sumEventFatalaties)
+summary(sumEventInjuries)
+```
+
+##### Looking at the summary provided above, we can see that certain events lead to very small fatalities.  This allows us to set a threshold.  For the purpose of this analysis, let's set the threshold at the mean: 90.15.  We will also set a similar threshold approach to injuries.
+
+```{r subsetAtThreshold, cache = TRUE}
+# subset to only include anything greater than the threshold
+subsetAtFatalities <- subset(sumEventFatalaties,
+                             FATALITIES > mean(FATALITIES))
+
+subsetAtInjuries <- subset(sumEventInjuries,
+                           INJURIES > mean(INJURIES))
+
+table(subsetAtFatalities$FATALITIES)
+table(subsetAtInjuries$INJURIES)
+```
+
+##### Looking at the table of fatalities and injuries above, we can see that setting a threshold has decreased the data where only events where only large fatalities or injuries are included.  This will allow for a more meaningful look at the results later.
+
+
+#### 2) Storm Events vs. Economic Consequences
+
+##### In order to answer which storm events have the greatest economic consequences, we need to look at how `r names(stormDb[8])` relates to variables `r names(stormDb[25])` and `r names(stormDb[27])`.  These two variables represent property and crop damages, respectively.  We would also need to look at variables `r names(stormDb[25])` and `r names(stormDb[27])` since they are the associated units to `r names(stormDb[25])` and `r names(stormDb[27])`, respectively.  Variables, `r names(stormDb[25])` and `r names(stormDb[27])`, are estimated in magnitudes of thousands (K), millions (M) and billions (B).
+
+```{r identifyFactors}
+levels(stormDb$PROPDMGEXP)
+levels(stormDb$CROPDMGEXP)
+```
+
+##### According to National Weather Service's Storm Data Documentation found in https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf Section 2.7, "alphabetical characters used to signify magnitude include “K” for thousands, “M” for millions, and “B” for billions."  It did not mention what the other levels signify.  Therefore, we will look at the data involving only these values: k, K, m, M, b, B, H, h.
+
+```{r subsetDbEventDmg, cache = TRUE}
+# subset per group in order to remove as much of the 0 data as possible
+subEventPropDmg <- subset(stormDb,
+                          PROPDMG > 0 & (PROPDMGEXP == "K" |
+                                             PROPDMGEXP == "M" | 
+                                             PROPDMGEXP == "m" | 
+                                             PROPDMGEXP == "H" | 
+                                             PROPDMGEXP == "h" | 
+                                             PROPDMGEXP == "B"),
+                          select = c(EVTYPE, PROPDMG, PROPDMGEXP))
+subEventCropDmg <- subset(stormDb,
+                          CROPDMG > 0 & (CROPDMGEXP == "K" | 
+                                             CROPDMGEXP == "k" | 
+                                             CROPDMGEXP == "M" | 
+                                             CROPDMGEXP == "m" | 
+                                             CROPDMGEXP == "B"),
+                          select = c(EVTYPE, CROPDMG, CROPDMGEXP))
+
+subEventPropDmg <- aggregate(PROPDMG ~ EVTYPE + PROPDMGEXP,
+                             subEventPropDmg,
+                             FUN = sum)
+subEventCropDmg <- aggregate(CROPDMG ~ EVTYPE + CROPDMGEXP,
+                             subEventCropDmg,
+                             FUN = sum)
+
+summary(subEventPropDmg)
+summary(subEventCropDmg)
+```
+
+##### Since we are trying to determine the economic consequences, we can combine both the property and crop damages and just look at damages as a whole:
+
+```{r convertToDamages, cache = TRUE}
+# change coloumn names and bind data
+colnames(subEventPropDmg) <- c("EVTYPE", "DMGEXP", "DMG")
+colnames(subEventCropDmg) <- c("EVTYPE", "DMGEXP", "DMG")
+
+subEventDmg <- rbind(subEventPropDmg, subEventCropDmg)
+
+summary(subEventDmg)
+```
+
+#####   The data needs to be tidied to the same units.  For the purpose of this analysis, we will look at all damages in millions since based on the data summary, there are a few items in billions from both property and crop damages and converting to thousands would lead to large numbers.  
+
+```{r convertToMil, cache = TRUE}
+# we ignore all other PROPDMGEXP values except B, M, or K since 
+# they don't have units assigned to them
+for (i in 1:nrow(subEventDmg)) {
+    if(subEventDmg$DMGEXP[i] == "B") {
+        subEventDmg$DMG[i] <- subEventDmg$DMG[i]*1000
+    } 
+    if(subEventDmg$DMGEXP[i] == "K" | subEventDmg$DMGEXP[i] == "k") {
+        subEventDmg$DMG[i] <- subEventDmg$DMG[i]/1000
+    }
+    if(subEventDmg$DMGEXP[i] == "H" | subEventDmg$DMGEXP[i] == "h") {
+        subEventDmg$DMG[i] <- subEventDmg$DMG[i]/1000000
+    }
+}
+
+# change to M since everything has been converted to millions
+subEventDmg$DMGEXP <- "M"
+
+summary(subEventDmg)
+```
+
+##### Similar to the population health problem, let's set the threshold at the mean of 666.93M so we can see a decreased data with a more meaningful result.
+
+```{r subsetAtThreshold2, cache = TRUE}
+# subset to only include anything greater than the threshold
+subDmgAtMean <- subset(subEventDmg, 
+                       DMG > mean(DMG))
+```
+
+## III. Results
+
+##### This section provides results regarding the data analysis performed above on the NOAA Storm data. 
+
+### 1) Storm Events vs. Population Health
+
+##### From the analysis, we have reduced the storm data to only look at storm events with large fatalities. Let's look at a bar plot of these storm events in relation to fatalities.
+
+```{r plotEventsFatalities, fig.height = 12}
+gg1 <- ggplot(data = subsetAtFatalities, aes(x = EVTYPE, y = FATALITIES)) + 
+    geom_bar(stat = "identity", aes(fill = factor(FATALITIES))) +
+    xlab("STORM EVENTS") + 
+    ggtitle("Fatalities caused by Storm Events") + 
+    theme(axis.text.x = element_text(angle = 90))
+
+gg2 <- ggplot(data = subsetAtInjuries, aes(x = EVTYPE, y = INJURIES)) + 
+    geom_bar(stat = "identity", aes(fill = factor(INJURIES))) +
+    xlab("STORM EVENTS") + 
+    ggtitle("Injuries caused by Storm Events") + 
+    theme(axis.text.x = element_text(angle = 90))
+
+grid.newpage()
+grid.draw(rbind(ggplotGrob(gg1), ggplotGrob(gg2), size = "last"))
+```
+
+#### Conclusion:
+
+##### Based on the graph, the top storm events that have the most effect on population health are:
+
+```{r presentPopHealthResults, cache = TRUE}
+subsetAtFatalities <- arrange(subsetAtFatalities, desc(FATALITIES))
+subsetAtInjuries <- arrange(subsetAtInjuries, desc(INJURIES))
+
+head(subsetAtFatalities,5)
+head(subsetAtInjuries, 3)
+```
+
+##### With regards to population health, `r subsetAtFatalities[1,1]` is the most catastrophic storm event.  Tornadoes have lead to the most fatalities and injuries.  Therefore, it is most detrimental effect on population health.
+
+
+### 2) Storm Events vs. Economic Consequences
+
+##### From the analysis reduced data summary, we can plot the property and crop damages as a function of storm events.  
+
+```{r plotEventsDmgs, fig.height = 6}
+gg <- ggplot(data = subDmgAtMean, aes(x = EVTYPE, y = DMG, fill = "")) + 
+    geom_bar(stat = "identity") + theme(legend.position="none") + 
+    xlab("STORM EVENTS") + ylab("DAMAGE [Millions]") + 
+    ggtitle("Storm Events vs. Economic Consequence") + 
+    theme(axis.text.x = element_text(angle = 90))
+gg
+```
+
+#### Conclusion:
+
+##### Based on the graph, the top four storm events that have the most effect on the economy are:
+
+```{r presentDmgResults, cache = TRUE}
+subDmgAtMean <- arrange(subDmgAtMean, desc(DMG))
+head(subDmgAtMean, 4)
+```
+
+##### According to the data shown above, while all `r subDmgAtMean[1,1]`, `r subDmgAtMean[2,1]`, `r subDmgAtMean[3,1]` and `r subDmgAtMean[4,1]` lead to the greatest economic consequences, `r subDmgAtMean[1,1]` is the most catastrophic storm event when we measure damages in millions. 
+
+
